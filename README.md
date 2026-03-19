@@ -3,6 +3,9 @@
 ## 📌 Overview
 This project is a color-based object sorting robotic arm. It automatically picks an object and places it in the correct position based on its detected color.
 
+## 📸 Project Image
+![Project](images/your_image.jpg)
+
 ## ⚙️ Components Used
 - ESP32-WROOM-32
 - 4 Servo Motors
