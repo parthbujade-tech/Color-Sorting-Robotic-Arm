@@ -1,4 +1,22 @@
+#define BLYNK_TEMPLATE_ID "TMPL3xuehkRRn"
+#define BLYNK_TEMPLATE_NAME "sortingbotttt"
+#define BLYNK_AUTH_TOKEN "99TbFF8V5U-V4llBr3dspYJ9iVq09bGs"
+
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
 #include <Servo.h>
+#include <ctype.h>
+
+// WiFi
+char ssid[] = "test";
+char pass[] = "12345678";
+
+// ESP8266 (NodeMCU) pin mapping
+// D7 = GPIO13, D5 = GPIO14, D6 = GPIO12, D4 = GPIO2
+#define BASE_SERVO_PIN     D7
+#define SHOULDER_SERVO_PIN D5
+#define ELBOW_SERVO_PIN    D6
+#define GRIP_SERVO_PIN     D4
 
 Servo baseServo;
 Servo shoulderServo;
@@ -7,112 +25,167 @@ Servo gripServo;
 
 bool busy = false;
 
-// Track current positions
-int basePos = 90;
-int shoulderPos = 100;
-int elbowPos = 10;
-int gripPos = 30;
+// Counters for Blynk
+int redCount = 0;
+int blueCount = 0;
+int greenCount = 0;
+
+void goHome();
+void moveColour(int finalBaseAngle, bool elbowActive);
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(115200);  // MUST match Python baud
 
-  baseServo.attach(D5);
-  shoulderServo.attach(D6);
-  elbowServo.attach(D7);
-  gripServo.attach(D1);
+  baseServo.attach(BASE_SERVO_PIN);
+  shoulderServo.attach(SHOULDER_SERVO_PIN);
+  elbowServo.attach(ELBOW_SERVO_PIN);
+  gripServo.attach(GRIP_SERVO_PIN);
 
-  Serial.println("Type r, b, or g");
+  Serial.println("Commands: r=red, b=blue, g=green, h=home");
+  goHome();
 
-  goHome();
+  // WiFi connect
+  Serial.print("Connecting to WiFi");
+  WiFi.begin(ssid, pass);
+
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nWiFi Connected");
+    Serial.print("IP: ");
+    Serial.println(WiFi.localIP());
+    Blynk.virtualWrite(V7, 1);  // WiFi status
+  } else {
+    Serial.println("\nWiFi Failed");
+    Blynk.virtualWrite(V7, 0);  // WiFi status
+  }
+
+  // Blynk connect
+  Blynk.config(BLYNK_AUTH_TOKEN, "blynk.cloud", 80);
+  if (Blynk.connect(10000)) {
+    Serial.println("Blynk Connected");
+    Blynk.virtualWrite(V8, 1);  // Blynk status
+    Blynk.virtualWrite(V0, redCount);
+    Blynk.virtualWrite(V1, blueCount);
+    Blynk.virtualWrite(V2, greenCount);
+  } else {
+    Serial.println("Blynk Failed");
+    Blynk.virtualWrite(V8, 0);  // Blynk status
+  }
 }
 
 void loop() {
-  if (Serial.available() > 0 && !busy) {
-    char c = Serial.read();
+  Blynk.run();
 
-    if (c == '\n' || c == '\r' || c == ' ') return;
+  if (Serial.available() > 0 && !busy) {
+    char c = (char)Serial.read();
+    c = tolower(c);
 
-    busy = true;
+    if (c == '\n' || c == '\r' || c == ' ') return;
 
-    if (c == 'r') moveColour(120, false);
-    else if (c == 'b') moveColour(150, false);
-    else if (c == 'g') moveColour(150, true);
+    Serial.print("Received: ");
+    Serial.println(c);
 
-    busy = false;
-    Serial.println("READY");
-  }
+    busy = true;
+    Blynk.virtualWrite(V6, 1);  // arm moving
+
+    if (c == 'r') {
+      Serial.println("RED command received");
+      moveColour(120, false);
+      redCount++;
+      Blynk.virtualWrite(V0, redCount);
+    } else if (c == 'b') {
+      Serial.println("BLUE command received");
+      moveColour(150, false);
+      blueCount++;
+      Blynk.virtualWrite(V1, blueCount);
+    } else if (c == 'g') {
+      Serial.println("GREEN command received");
+      moveColour(150, true);
+      greenCount++;
+      Blynk.virtualWrite(V2, greenCount);
+    } else if (c == 'h') {
+      Serial.println("HOME command received");
+      goHome();
+    } else {
+      Serial.println("Invalid command. Use r, b, g, or h.");
+    }
+
+    busy = false;
+    Blynk.virtualWrite(V6, 0);  // arm idle
+    Serial.println("READY for next command");
+  }
 }
 
-// -------- SMOOTH MOVE FUNCTION --------
-
-void smoothMove(Servo &servo, int &currentPos, int targetPos, int speedDelay) {
-
-  if (currentPos < targetPos) {
-    for (int pos = currentPos; pos <= targetPos; pos++) {
-      servo.write(pos);
-      delay(speedDelay);
-    }
-  } else {
-    for (int pos = currentPos; pos >= targetPos; pos--) {
-      servo.write(pos);
-      delay(speedDelay);
-    }
-  }
-
-  currentPos = targetPos;
-}
-
-// -------- HOME --------
+// ---------------- FUNCTIONS ----------------
 
 void goHome() {
-  smoothMove(baseServo, basePos, 90, 10);
-  smoothMove(shoulderServo, shoulderPos, 100, 10);
-  smoothMove(elbowServo, elbowPos, 10, 10);
-  smoothMove(gripServo, gripPos, 30, 10);
+  baseServo.write(90);
+  delay(1000);
+
+  shoulderServo.write(100);
+  elbowServo.write(10);
+  delay(1000);
+
+  gripServo.write(30);
+  delay(1000);
 }
 
-// -------- MAIN MOVEMENT --------
-
 void moveColour(int finalBaseAngle, bool elbowActive) {
+  baseServo.write(30);
+  delay(1000);
 
-  // PICK
-  smoothMove(baseServo, basePos, 30, 10);
-  smoothMove(shoulderServo, shoulderPos, 70, 12);
+  shoulderServo.write(60);
+  delay(1000);
 
-  delay(200);
+  gripServo.write(85);
+  delay(1000);
 
-  smoothMove(gripServo, gripPos, 70, 15);
+  shoulderServo.write(100);
+  delay(1000);
 
-  delay(300);
+  baseServo.write(90);
+  delay(1000);
 
-  smoothMove(shoulderServo, shoulderPos, 100, 12);
+  baseServo.write(finalBaseAngle);
+  delay(1000);
 
-  // CENTER
-  smoothMove(baseServo, basePos, 90, 10);
+  if (elbowActive) {
+    Serial.println("ELBOW MOVING FOR PLACING");
+    elbowServo.write(60);
+    delay(500);
+  }
 
-  // FINAL BOX
-  smoothMove(baseServo, basePos, finalBaseAngle, 10);
+  shoulderServo.write(60);
+  delay(1000);
 
-  // PLACE
-  if (elbowActive) {
-    smoothMove(elbowServo, elbowPos, 60, 10);
-  }
+  gripServo.write(30);
+  delay(1000);
 
-  smoothMove(shoulderServo, shoulderPos, 70, 15);
+  if (!elbowActive) {
+    shoulderServo.write(100);
+    delay(1000);
 
-  delay(200);
+    baseServo.write(90);
+    delay(1000);
 
-  smoothMove(gripServo, gripPos, 30, 20);  // slower open = stable drop
+    goHome();
+    return;
+  }
 
-  delay(300);
+  shoulderServo.write(100);
+  delay(1000);
 
-  smoothMove(shoulderServo, shoulderPos, 100, 12);
+  elbowServo.write(10);
+  delay(500);
 
-  if (elbowActive) {
-    smoothMove(elbowServo, elbowPos, 10, 10);
-  }
+  baseServo.write(90);
+  delay(1000);
 
-  smoothMove(baseServo, basePos, 90, 10);
-
-  goHome();
+  goHome();
 }
